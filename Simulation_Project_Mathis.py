@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, gaussian_kde
+from scipy.integrate import cumtrapz
 
  
 # Fix random seed
@@ -8,7 +9,7 @@ np.random.seed(seed=9999)
 
 
 
-def run_cycle(dt, price, capped_lot, parking_lot_size):
+def run_cycle(dt, price, capped_lot, parking_lot_size, plot_flag):
     
     if np.mod(12/dt,1) != 0:
         raiseException('Non-integer intervals.')
@@ -87,7 +88,10 @@ def run_cycle(dt, price, capped_lot, parking_lot_size):
     for n in range(0,len(time)):
     
         # Calculate net change in total number of cars in parking lot.
-        parked_cars[n] = parked_cars[n] + net_influx[n]
+        if n == 0:
+            parked_cars[n] = net_influx[n]
+        else:
+            parked_cars[n] = parked_cars[n-1] + net_influx[n]
         
         # The total number of cars cannot be less than zero.
         if parked_cars[n] < 0:
@@ -122,8 +126,8 @@ def run_cycle(dt, price, capped_lot, parking_lot_size):
     
     daily_income = cars_serviced[-1]*price
     
-    
-    if False:
+    # Plotting for diagnostic testing
+    if plot_flag:
         # Prepend zero cars at the beginning of the day.
         time = np.insert(time,0,0)
         parked_cars = np.insert(parked_cars,0,0)
@@ -139,13 +143,12 @@ def run_cycle(dt, price, capped_lot, parking_lot_size):
 
     return daily_income, parked_cars
 
-
-def run_batch(dt, price, capped_lot, parking_lot_size, cycles):
+def run_batch(dt, price, capped_lot, parking_lot_size, cycles, plot_flag):
     
     income = np.zeros(cycles)
     max_cars = np.zeros(cycles)
     for i in range(0,cycles):
-        daily_income, parked_cars = run_cycle(dt, price, capped_lot, parking_lot_size)
+        daily_income, parked_cars = run_cycle(dt, price, capped_lot, parking_lot_size, plot_flag)
         income[i] = daily_income
         max_cars[i] = max(parked_cars)
 
@@ -197,7 +200,7 @@ parking_lot_size = 8
 cycles = 1000
 
 # Run batch
-income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles)
+income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles, True)
 
 # Plots
 
@@ -255,7 +258,7 @@ parking_lot_size = 8
 cycles = 1000
 
 # Run batch
-income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles)
+income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles, False)
 
 # Plots
 
@@ -313,7 +316,7 @@ parking_lot_size = 8
 cycles = 1000
 
 # Run batch
-income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles)
+income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size, cycles, False)
 
 # Plots
 
@@ -347,6 +350,32 @@ plt.ylabel('Probability Density')
 plt.legend(('Data','KDE','Norm PDF'))
 plt.savefig('Figures\Max_Cars_PDF_dt_0p5.tiff', dpi=300)
 
+# For this case, we also want to calculate the 90% probability.
+x_c_0p5 = np.linspace(0,200,10001)
+kde_c_0p5 = kde_c
+
+# Calculate the cumulative integration
+F_c_0p5 = cumtrapz(kde_c_0p5(x_c_0p5), x_c_0p5, initial=0)
+
+# Calculate the number of spots needed for 90%.
+i_90pcent = sum(F_c_0p5<0.9) - 1
+x_c_0p5_90pcent = x_c_0p5[i_90pcent]
+print(x_c_0p5_90pcent)
+print(max(x_c_0p5))
+
+# Plot
+plt.figure(9999)
+plt.plot(x_c_0p5, F_c_0p5, 'b-')
+plt.plot(x_c_0p5, kde_c_0p5(x_c_0p5), 'r--')
+plt.plot(x_c_0p5[i_90pcent], F_c_0p5[i_90pcent], 'bo')
+plt.xlabel('Peak Car Total')
+plt.ylabel('Probability')
+plt.legend(('Cumulative Density', 'Probability Density Function'))
+plt.grid()
+plt.savefig('Figures\Probability_for_dt_0p5.tiff', dpi=300)
+
+
+
 """
 
    Test 4: Run the model with several different times
@@ -379,7 +408,7 @@ max_cars_min = np.zeros_like(dt)
 for i in range(0,len(dt)):
     
     # Run batch
-    income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt[i], price, capped_lot, parking_lot_size, cycles)
+    income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt[i], price, capped_lot, parking_lot_size, cycles, False)
     
     income_average[i] = np.mean(income)
     max_cars_average[i] = np.mean(max_cars)
@@ -424,7 +453,7 @@ price = 10
 # Is the size of the parking lot capped?
 capped_lot = True
 # If capped, what is the parking lot size?
-parking_lot_size = np.linspace(5,40,36)
+parking_lot_size = np.linspace(5,160,156)
 
 # Number of days in cycle
 cycles = 1000
@@ -436,7 +465,7 @@ max_cars_average = np.zeros_like(parking_lot_size)
 for i in range(0,len(parking_lot_size)):
     
     # Run batch
-    income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size[i], cycles)
+    income, max_cars, mu_i, std_i, x_i, p_i, kde_i, mu_c, std_c, x_c, p_c, kde_c = run_batch(dt, price, capped_lot, parking_lot_size[i], cycles, False)
     
     income_average[i] = np.mean(income)
     max_cars_average[i] = np.mean(max_cars)
@@ -458,6 +487,27 @@ plt.ylim([0, 1.1*np.max(max_cars_average)])
 plt.grid()
 plt.savefig('Figures\Max_Cars_vs_parking_lot_size.tiff', dpi=300)
 
+"""
+
+Addendum: spots required for 100% servicing
+
+"""
+
+Worst_Case = np.array([0,0,0,0,0])
+Worst_Case[1] = 150-5
+Worst_Case[2] = Worst_Case[1] + 75-10
+Worst_Case[3] = Worst_Case[2] + 60-40
+Worst_Case[4] = Worst_Case[3] + 30-50
+
+print(max(Worst_Case))
+
+Time = [0,3,6,9,12]
+
+plt.figure(18)
+plt.plot(Time, Worst_Case)
+plt.xlabel('Time (hours)')
+plt.ylabel('Maximum Parked Cars: Worst Case')
+plt.grid()
+plt.savefig('Figures\Max_Cars_100pcent.tiff', dpi=300)
 
 plt.show()
-
